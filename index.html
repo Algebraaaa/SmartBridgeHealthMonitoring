@@ -1,0 +1,1465 @@
+<!DOCTYPE html>
+<html lang="zh-CN" class="scroll-smooth">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>基于精密单点定位及多源数据融合的大型桥梁变形监测技术</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        glass: {
+                            light: 'rgba(255, 255, 255, 0.65)',
+                            dark: 'rgba(15, 23, 42, 0.6)',
+                            border: 'rgba(255, 255, 255, 0.4)',
+                            borderDark: 'rgba(255, 255, 255, 0.1)',
+                        }
+                    },
+                    animation: {
+                        'blob': 'blob 10s infinite',
+                        'blob-delay': 'blob 10s infinite 2s',
+                        'blob-slow': 'blob 15s infinite 5s',
+                        'fade-in-up': 'fadeInUp 0.8s ease-out forwards',
+                        'float': 'float 6s ease-in-out infinite',
+                        'float-delay': 'float 6s ease-in-out infinite 2s',
+                        'float-slow': 'float 8s ease-in-out infinite 4s',
+                        'pulse-glow': 'pulseGlow 4s ease-in-out infinite',
+                        'shimmer': 'shimmer 3s ease-in-out infinite',
+                        'orbit': 'orbit 20s linear infinite',
+                        'orbit-reverse': 'orbit 25s linear infinite reverse',
+                        'twinkle': 'twinkle 2s ease-in-out infinite',
+                    },
+                    keyframes: {
+                        blob: {
+                            '0%': { transform: 'translate(0px, 0px) scale(1)' },
+                            '33%': { transform: 'translate(30px, -50px) scale(1.1)' },
+                            '66%': { transform: 'translate(-20px, 20px) scale(0.9)' },
+                            '100%': { transform: 'translate(0px, 0px) scale(1)' },
+                        },
+                        fadeInUp: {
+                            '0%': { opacity: '0', transform: 'translateY(20px)' },
+                            '100%': { opacity: '1', transform: 'translateY(0)' },
+                        },
+                        float: {
+                            '0%, 100%': { transform: 'translateY(0px)' },
+                            '50%': { transform: 'translateY(-20px)' },
+                        },
+                        pulseGlow: {
+                            '0%, 100%': { opacity: '0.4', transform: 'scale(1)' },
+                            '50%': { opacity: '0.8', transform: 'scale(1.05)' },
+                        },
+                        shimmer: {
+                            '0%': { backgroundPosition: '-200% 0' },
+                            '100%': { backgroundPosition: '200% 0' },
+                        },
+                        orbit: {
+                            '0%': { transform: 'rotate(0deg) translateX(150px) rotate(0deg)' },
+                            '100%': { transform: 'rotate(360deg) translateX(150px) rotate(-360deg)' },
+                        },
+                        twinkle: {
+                            '0%, 100%': { opacity: '0.3', transform: 'scale(0.8)' },
+                            '50%': { opacity: '1', transform: 'scale(1.2)' },
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        /* iOS 17 Style Glassmorphism Utility */
+        .glass-panel {
+            background: rgba(255, 255, 255, 0.65);
+            backdrop-filter: blur(24px);
+            -webkit-backdrop-filter: blur(24px); /* Safari support */
+            border: 1px solid rgba(255, 255, 255, 0.5);
+            box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.07);
+        }
+        
+        .dark .glass-panel {
+            background: rgba(15, 23, 42, 0.6); /* Slate-900 base */
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.4);
+        }
+
+        /* Ambient Background Blobs */
+        .ambient-light {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            overflow: hidden;
+            z-index: -1;
+            background-color: #f8fafc; /* Slate-50 */
+            transition: background-color 0.5s;
+        }
+        .dark .ambient-light {
+            background-color: #020617; /* Slate-950 */
+        }
+
+        .blob-1 { background: radial-gradient(circle, rgba(59,130,246,0.3) 0%, rgba(59,130,246,0) 70%); }
+        .blob-2 { background: radial-gradient(circle, rgba(168,85,247,0.3) 0%, rgba(168,85,247,0) 70%); }
+        .blob-3 { background: radial-gradient(circle, rgba(249,115,22,0.2) 0%, rgba(249,115,22,0) 70%); }
+        
+        .dark .blob-1 { background: radial-gradient(circle, rgba(59,130,246,0.15) 0%, rgba(59,130,246,0) 70%); }
+        .dark .blob-2 { background: radial-gradient(circle, rgba(168,85,247,0.15) 0%, rgba(168,85,247,0) 70%); }
+        .dark .blob-3 { background: radial-gradient(circle, rgba(249,115,22,0.15) 0%, rgba(249,115,22,0) 70%); }
+
+        /* Chart container constraint */
+        .chart-container {
+            position: relative;
+            width: 100%;
+            margin: auto;
+        }
+
+        /* Nav active state */
+        .nav-link.active {
+            color: #2563eb;
+            font-weight: 600;
+        }
+        .dark .nav-link.active {
+            color: #60a5fa;
+        }
+
+        /* 打字机效果 */
+        .typewriter-container {
+            display: inline;
+        }
+        .typewriter-text {
+            display: inline;
+        }
+        .typewriter-cursor {
+            display: inline-block;
+            width: 3px;
+            height: 1.2em;
+            background: linear-gradient(180deg, #3b82f6, #8b5cf6);
+            margin-left: 2px;
+            vertical-align: text-bottom;
+            animation: blink 1s infinite;
+            border-radius: 1px;
+            box-shadow: 0 0 8px rgba(59, 130, 246, 0.6);
+        }
+        .dark .typewriter-cursor {
+            background: linear-gradient(180deg, #60a5fa, #a78bfa);
+            box-shadow: 0 0 12px rgba(96, 165, 250, 0.8);
+        }
+        @keyframes blink {
+            0%, 50% { opacity: 1; }
+            51%, 100% { opacity: 0; }
+        }
+        .typewriter-highlight {
+            font-weight: 700;
+            color: #1e293b;
+        }
+        .dark .typewriter-highlight {
+            color: #fff;
+        }
+
+        /* 粒子星空效果 */
+        .particles {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            pointer-events: none;
+        }
+        .particle {
+            position: absolute;
+            width: 4px;
+            height: 4px;
+            background: radial-gradient(circle, rgba(99,102,241,0.8) 0%, transparent 70%);
+            border-radius: 50%;
+            animation: twinkle 3s ease-in-out infinite;
+        }
+        .dark .particle {
+            background: radial-gradient(circle, rgba(199,210,254,0.9) 0%, transparent 70%);
+        }
+
+        /* 流动网格 */
+        .grid-pattern {
+            position: absolute;
+            inset: 0;
+            background-image: 
+                linear-gradient(rgba(99,102,241,0.03) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(99,102,241,0.03) 1px, transparent 1px);
+            background-size: 60px 60px;
+            animation: gridMove 20s linear infinite;
+        }
+        .dark .grid-pattern {
+            background-image: 
+                linear-gradient(rgba(199,210,254,0.05) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(199,210,254,0.05) 1px, transparent 1px);
+        }
+        @keyframes gridMove {
+            0% { transform: translate(0, 0); }
+            100% { transform: translate(60px, 60px); }
+        }
+
+        /* 流光条 */
+        .light-beam {
+            position: absolute;
+            width: 150%;
+            height: 1px;
+            background: linear-gradient(90deg, transparent, rgba(99,102,241,0.4), rgba(168,85,247,0.4), transparent);
+            animation: beamSweep 8s ease-in-out infinite;
+        }
+        .light-beam:nth-child(2) {
+            animation-delay: 2s;
+            top: 30%;
+        }
+        .light-beam:nth-child(3) {
+            animation-delay: 4s;
+            top: 70%;
+        }
+        @keyframes beamSweep {
+            0%, 100% { transform: translateX(-50%) rotate(-5deg); opacity: 0; }
+            50% { transform: translateX(0%) rotate(-5deg); opacity: 1; }
+        }
+
+        /* 漂浮圆环 */
+        .floating-ring {
+            position: absolute;
+            border: 1px solid rgba(99,102,241,0.15);
+            border-radius: 50%;
+            animation: float 8s ease-in-out infinite;
+        }
+        .dark .floating-ring {
+            border-color: rgba(199,210,254,0.1);
+        }
+
+        /* 鼠标跟随光晕 */
+        .cursor-glow {
+            position: fixed;
+            width: 400px;
+            height: 400px;
+            background: radial-gradient(circle, rgba(99,102,241,0.15) 0%, transparent 70%);
+            border-radius: 50%;
+            pointer-events: none;
+            transform: translate(-50%, -50%);
+            transition: opacity 0.3s;
+            z-index: 1;
+            opacity: 0;
+        }
+        .dark .cursor-glow {
+            background: radial-gradient(circle, rgba(168,85,247,0.1) 0%, transparent 70%);
+        }
+
+        /* 渐变流动边框 */
+        .gradient-border {
+            position: absolute;
+            inset: 0;
+            border-radius: inherit;
+            padding: 1px;
+            background: linear-gradient(90deg, transparent, rgba(99,102,241,0.3), rgba(168,85,247,0.3), transparent);
+            background-size: 200% 100%;
+            animation: shimmer 3s ease-in-out infinite;
+            -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+            mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+            -webkit-mask-composite: xor;
+            mask-composite: exclude;
+            opacity: 0;
+            transition: opacity 0.3s;
+        }
+        .glass-panel:hover .gradient-border {
+            opacity: 1;
+        }
+    </style>
+</head>
+<body class="text-slate-800 dark:text-slate-100 transition-colors duration-300">
+
+    <!-- Ambient Background Animation -->
+    <div class="ambient-light">
+        <!-- 流动网格背景 -->
+        <div class="grid-pattern"></div>
+        
+        <!-- 原有渐变光球 -->
+        <div class="absolute top-0 -left-20 w-96 h-96 blob-1 rounded-full mix-blend-multiply dark:mix-blend-screen filter blur-3xl opacity-70 animate-blob"></div>
+        <div class="absolute top-0 -right-20 w-96 h-96 blob-2 rounded-full mix-blend-multiply dark:mix-blend-screen filter blur-3xl opacity-70 animate-blob-delay"></div>
+        <div class="absolute -bottom-32 left-20 w-96 h-96 blob-3 rounded-full mix-blend-multiply dark:mix-blend-screen filter blur-3xl opacity-70 animate-blob-slow"></div>
+        
+        <!-- 额外渐变光球 -->
+        <div class="absolute top-1/3 right-1/4 w-72 h-72 blob-1 rounded-full mix-blend-multiply dark:mix-blend-screen filter blur-3xl opacity-40 animate-blob-slow"></div>
+        <div class="absolute bottom-1/4 left-1/3 w-64 h-64 blob-2 rounded-full mix-blend-multiply dark:mix-blend-screen filter blur-3xl opacity-50 animate-blob-delay"></div>
+        
+        <!-- 流光条 -->
+        <div class="light-beam" style="top: 15%;"></div>
+        <div class="light-beam" style="top: 45%;"></div>
+        <div class="light-beam" style="top: 75%;"></div>
+        
+        <!-- 漂浮圆环 -->
+        <div class="floating-ring w-32 h-32" style="top: 20%; left: 10%; animation-delay: 0s;"></div>
+        <div class="floating-ring w-48 h-48" style="top: 60%; right: 15%; animation-delay: 2s;"></div>
+        <div class="floating-ring w-24 h-24" style="bottom: 20%; left: 25%; animation-delay: 4s;"></div>
+        <div class="floating-ring w-40 h-40" style="top: 40%; right: 30%; animation-delay: 1s;"></div>
+        
+        <!-- 粒子容器 -->
+        <div class="particles" id="particles"></div>
+    </div>
+    
+    <!-- 鼠标跟随光晕 -->
+    <div class="cursor-glow" id="cursorGlow"></div>
+
+    <!-- Navigation -->
+    <nav class="fixed top-0 w-full z-50 glass-panel border-b-0 rounded-b-2xl mx-auto max-w-[1920px]">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex justify-between h-16 items-center">
+                <div class="flex items-center gap-2">
+                    <div class="w-8 h-8 rounded-lg bg-gradient-to-tr from-blue-500 to-purple-500 flex items-center justify-center text-white font-bold shadow-lg">B</div>
+                    <span class="text-xl font-bold tracking-tight">Bridge<span class="text-blue-600 dark:text-blue-400">Monitor</span><span class="text-[0.6rem] ml-1 px-1.5 py-0.5 rounded-full border border-slate-300 dark:border-slate-600 text-slate-500 dark:text-slate-400">PPP</span></span>
+                </div>
+                
+                <div class="hidden md:flex space-x-6">
+                    <a href="#hero" class="nav-link group flex items-center gap-1.5 text-sm hover:text-blue-600 dark:hover:text-blue-400 transition-all px-3 py-1.5 rounded-full hover:bg-blue-50 dark:hover:bg-blue-900/20">
+                        <svg class="w-4 h-4 text-blue-500 group-hover:scale-110 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/></svg>
+                        <span>首页</span>
+                    </a>
+                    <a href="#challenge" class="nav-link group flex items-center gap-1.5 text-sm hover:text-purple-600 dark:hover:text-purple-400 transition-all px-3 py-1.5 rounded-full hover:bg-purple-50 dark:hover:bg-purple-900/20">
+                        <svg class="w-4 h-4 text-purple-500 group-hover:scale-110 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/></svg>
+                        <span>背景痛点</span>
+                    </a>
+                    <a href="#solution" class="nav-link group flex items-center gap-1.5 text-sm hover:text-emerald-600 dark:hover:text-emerald-400 transition-all px-3 py-1.5 rounded-full hover:bg-emerald-50 dark:hover:bg-emerald-900/20">
+                        <svg class="w-4 h-4 text-emerald-500 group-hover:scale-110 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z"/></svg>
+                        <span>技术架构</span>
+                    </a>
+                    <a href="#demo" class="nav-link group flex items-center gap-1.5 text-sm hover:text-orange-600 dark:hover:text-orange-400 transition-all px-3 py-1.5 rounded-full hover:bg-orange-50 dark:hover:bg-orange-900/20">
+                        <svg class="w-4 h-4 text-orange-500 group-hover:scale-110 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
+                        <span>系统演示</span>
+                    </a>
+                    <a href="#market" class="nav-link group flex items-center gap-1.5 text-sm hover:text-rose-600 dark:hover:text-rose-400 transition-all px-3 py-1.5 rounded-full hover:bg-rose-50 dark:hover:bg-rose-900/20">
+                        <svg class="w-4 h-4 text-rose-500 group-hover:scale-110 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"/></svg>
+                        <span>市场分析</span>
+                    </a>
+                    <a href="#conclusion" class="nav-link group flex items-center gap-1.5 text-sm hover:text-indigo-600 dark:hover:text-indigo-400 transition-all px-3 py-1.5 rounded-full hover:bg-indigo-50 dark:hover:bg-indigo-900/20">
+                        <svg class="w-4 h-4 text-indigo-500 group-hover:scale-110 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.438 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.438 3.42 3.42 0 00-.806 1.946 3.42 3.42 0 01-3.138 3.138 3.42 3.42 0 00-1.946.806 3.42 3.42 0 01-4.438 0 3.42 3.42 0 00-1.946-.806 3.42 3.42 0 01-3.138-3.138 3.42 3.42 0 00-.806-1.946 3.42 3.42 0 010-4.438 3.42 3.42 0 00.806-1.946 3.42 3.42 0 013.138-3.138z"/></svg>
+                        <span>展望</span>
+                    </a>
+                </div>
+
+                <div class="flex items-center gap-4">
+                    <!-- Theme Toggle Button -->
+                    <button id="theme-toggle" class="p-2 rounded-full hover:bg-black/5 dark:hover:bg-white/10 transition-colors focus:outline-none">
+                        <!-- Sun Icon -->
+                        <svg id="sun-icon" class="w-5 h-5 hidden dark:block text-yellow-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"></path></svg>
+                        <!-- Moon Icon -->
+                        <svg id="moon-icon" class="w-5 h-5 block dark:hidden text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"></path></svg>
+                    </button>
+                    <a href="#demo" class="hidden md:block px-4 py-2 bg-slate-900 dark:bg-white text-white dark:text-slate-900 rounded-full text-sm font-semibold hover:scale-105 transition-transform shadow-lg">Live Demo</a>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Hero Section -->
+    <section id="hero" class="relative pt-32 pb-20 px-4 min-h-[90vh] flex items-center justify-center overflow-hidden">
+        <div class="max-w-5xl mx-auto text-center z-10 animate-fade-in-up">
+            <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-blue-500/10 border border-blue-500/20 text-blue-600 dark:text-blue-300 text-xs font-semibold mb-8 backdrop-blur-sm">
+                <span class="relative flex h-2 w-2">
+                  <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
+                  <span class="relative inline-flex rounded-full h-2 w-2 bg-blue-500"></span>
+                </span>
+                大学生创新创业训练项目 · 重点领域：人工智能与无人驾驶
+            </div>
+            
+            <h1 class="text-5xl md:text-7xl font-extrabold tracking-tight mb-6 leading-tight text-transparent bg-clip-text bg-gradient-to-r from-slate-900 via-blue-800 to-slate-900 dark:from-white dark:via-blue-300 dark:to-white drop-shadow-sm">
+                大型桥梁变形监测<br>
+                <span class="text-blue-600 dark:text-blue-400">精密单点定位</span> 与多源融合
+            </h1>
+            
+            <p class="mt-6 text-xl text-slate-600 dark:text-slate-300 max-w-2xl mx-auto leading-relaxed h-20 md:h-16">
+                <span id="typewriter" class="typewriter-container">
+                    <span class="typewriter-text"></span><span class="typewriter-cursor"></span>
+                </span>
+            </p>
+
+            <div class="mt-10 flex flex-col sm:flex-row justify-center gap-4">
+                <a href="#demo" class="px-8 py-4 rounded-full bg-blue-600 hover:bg-blue-500 text-white font-bold text-lg shadow-lg shadow-blue-500/30 transition-all hover:-translate-y-1">
+                    查看模拟系统
+                </a>
+                <a href="#solution" class="px-8 py-4 rounded-full glass-panel text-slate-700 dark:text-slate-200 font-semibold text-lg hover:bg-white/50 dark:hover:bg-slate-800/50 transition-all hover:-translate-y-1">
+                    探索技术原理
+                </a>
+            </div>
+
+            <!-- Stats Floating Cards -->
+            <div class="mt-20 grid grid-cols-1 md:grid-cols-3 gap-6 text-left">
+                <div class="glass-panel p-6 rounded-2xl transition-all hover:scale-105">
+                    <div class="w-10 h-10 rounded-full bg-blue-100 dark:bg-blue-900/50 flex items-center justify-center text-blue-600 dark:text-blue-300 mb-4 text-xl">🎯</div>
+                    <h3 class="text-lg font-bold">PPP 高精度定位</h3>
+                    <p class="text-sm text-slate-500 dark:text-slate-400 mt-2">无需基站即可实现厘米级动态监测，突破空间限制。</p>
+                </div>
+                <div class="glass-panel p-6 rounded-2xl transition-all hover:scale-105">
+                    <div class="w-10 h-10 rounded-full bg-purple-100 dark:bg-purple-900/50 flex items-center justify-center text-purple-600 dark:text-purple-300 mb-4 text-xl">🔗</div>
+                    <h3 class="text-lg font-bold">多源数据融合</h3>
+                    <p class="text-sm text-slate-500 dark:text-slate-400 mt-2">GNSS + 倾斜 + 应变，消除单一传感器盲区。</p>
+                </div>
+                <div class="glass-panel p-6 rounded-2xl transition-all hover:scale-105">
+                    <div class="w-10 h-10 rounded-full bg-orange-100 dark:bg-orange-900/50 flex items-center justify-center text-orange-600 dark:text-orange-300 mb-4 text-xl">⚡</div>
+                    <h3 class="text-lg font-bold">实时智能预警</h3>
+                    <p class="text-sm text-slate-500 dark:text-slate-400 mt-2">卡尔曼滤波动态评估，异常情况毫秒级响应。</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Challenge Section -->
+    <section id="challenge" class="py-24 relative">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="glass-panel rounded-3xl p-8 md:p-12 shadow-2xl">
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-16 items-center">
+                    <div>
+                        <h2 class="text-3xl font-bold mb-6">传统监测 vs 创新方案</h2>
+                        <p class="text-lg text-slate-600 dark:text-slate-300 mb-8">
+                            随着桥梁工程向“超大化”发展，微小形变若不及时发现，将酿成严重事故。传统方法受天气影响大、数据不连续，已无法满足现代安全需求。
+                        </p>
+                        
+                        <div class="space-y-6">
+                            <div class="flex gap-4">
+                                <div class="flex-none w-12 h-12 rounded-xl bg-red-100 dark:bg-red-900/30 flex items-center justify-center text-red-500 font-bold">VS</div>
+                                <div>
+                                    <h4 class="font-bold text-lg">传统人工监测</h4>
+                                    <p class="text-sm text-slate-500 dark:text-slate-400 mt-1">依赖全站仪，受雨雾天气限制，无法全天候工作，数据存在滞后性。</p>
+                                </div>
+                            </div>
+                            <div class="flex gap-4">
+                                <div class="flex-none w-12 h-12 rounded-xl bg-green-100 dark:bg-green-900/30 flex items-center justify-center text-green-500 font-bold">UP</div>
+                                <div>
+                                    <h4 class="font-bold text-lg">PPP 自动化监测</h4>
+                                    <p class="text-sm text-slate-500 dark:text-slate-400 mt-1">利用精密星历，单机即可高精度作业，结合卡尔曼滤波，全天候实时捕捉动态风险。</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="relative">
+                        <div class="absolute inset-0 bg-gradient-to-r from-blue-500 to-purple-500 rounded-2xl blur-2xl opacity-20"></div>
+                        <div class="relative bg-white/50 dark:bg-black/40 rounded-2xl p-6 border border-white/40 dark:border-white/10 backdrop-blur-sm">
+                            <h3 class="text-center font-bold mb-4">技术效能雷达图</h3>
+                            <div class="chart-container h-80 w-full">
+                                <canvas id="radarChart"></canvas>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Architecture Section -->
+    <section id="solution" class="py-20">
+        <div class="max-w-7xl mx-auto px-4">
+            <div class="text-center mb-16">
+                <h2 class="text-3xl md:text-4xl font-bold mb-4">多源融合技术架构</h2>
+                <p class="text-slate-500 dark:text-slate-400">点击下方模块查看传感器如何协同工作</p>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <!-- Sensor Modules -->
+                <div class="space-y-4">
+                    <div onclick="showDetail('gnss')" class="glass-panel p-5 rounded-xl cursor-pointer hover:bg-white/80 dark:hover:bg-slate-800/80 transition-all border-l-4 border-l-blue-500 group">
+                        <div class="flex justify-between items-center">
+                            <h3 class="font-bold group-hover:text-blue-500 transition-colors">GNSS 接收机</h3>
+                            <span class="text-xs font-mono text-slate-400">INPUT</span>
+                        </div>
+                        <p class="text-xs text-slate-500 dark:text-slate-400 mt-2">采集卫星信号，通过PPP算法解算三维坐标。</p>
+                    </div>
+                    <div onclick="showDetail('tilt')" class="glass-panel p-5 rounded-xl cursor-pointer hover:bg-white/80 dark:hover:bg-slate-800/80 transition-all border-l-4 border-l-purple-500 group">
+                        <div class="flex justify-between items-center">
+                            <h3 class="font-bold group-hover:text-purple-500 transition-colors">倾斜传感器</h3>
+                            <span class="text-xs font-mono text-slate-400">INPUT</span>
+                        </div>
+                        <p class="text-xs text-slate-500 dark:text-slate-400 mt-2">监测桥墩与主梁的角度变化，辅助修正姿态。</p>
+                    </div>
+                    <div onclick="showDetail('strain')" class="glass-panel p-5 rounded-xl cursor-pointer hover:bg-white/80 dark:hover:bg-slate-800/80 transition-all border-l-4 border-l-orange-500 group">
+                        <div class="flex justify-between items-center">
+                            <h3 class="font-bold group-hover:text-orange-500 transition-colors">应变计</h3>
+                            <span class="text-xs font-mono text-slate-400">INPUT</span>
+                        </div>
+                        <p class="text-xs text-slate-500 dark:text-slate-400 mt-2">监测关键受力点的应力状态，判断结构损伤。</p>
+                    </div>
+                </div>
+
+                <!-- Core Processor -->
+                <div class="md:col-span-2 relative glass-panel rounded-2xl p-8 flex flex-col justify-center">
+                    <div id="tech-detail-content" class="text-center transition-all duration-300">
+                        <div class="w-20 h-20 mx-auto bg-gradient-to-br from-slate-800 to-black text-white rounded-2xl flex items-center justify-center text-3xl shadow-xl mb-6">
+                            🧠
+                        </div>
+                        <h3 class="text-2xl font-bold mb-4">扩展卡尔曼滤波 (EKF)</h3>
+                        <p class="text-slate-600 dark:text-slate-300 leading-relaxed max-w-lg mx-auto">
+                            这是系统的核心大脑。它不仅仅是简单的叠加数据，而是建立数学模型，将GNSS的宏观位移数据与倾斜、应变的高频局部数据进行融合。通过状态估计，剔除环境噪声（如多路径效应），输出比单一传感器更平滑、更真实、更连续的桥梁变形曲线。
+                        </p>
+                        <div class="mt-8 flex justify-center gap-4 text-sm font-mono text-slate-400">
+                            <span class="px-3 py-1 rounded-full border border-slate-300 dark:border-slate-700">噪声校正</span>
+                            <span class="px-3 py-1 rounded-full border border-slate-300 dark:border-slate-700">状态预测</span>
+                            <span class="px-3 py-1 rounded-full border border-slate-300 dark:border-slate-700">精度验证</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Interactive Dashboard Demo -->
+    <section id="demo" class="py-20 bg-slate-100/50 dark:bg-black/20 backdrop-blur-sm">
+        <div class="max-w-[1400px] mx-auto px-4">
+            <div class="flex flex-col md:flex-row justify-between items-end mb-8">
+                <div>
+                    <h2 class="text-3xl font-bold flex items-center gap-3">
+                        <span class="flex h-3 w-3 relative">
+                            <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+                            <span class="relative inline-flex rounded-full h-3 w-3 bg-green-500"></span>
+                        </span>
+                        监测系统模拟 (Phase 4 Goal)
+                    </h2>
+                    <p class="text-slate-500 mt-2">基于生成数据的实时可视化界面预览</p>
+                </div>
+                <div class="mt-4 md:mt-0">
+                    <button id="toggle-sim" class="px-4 py-2 bg-slate-800 dark:bg-white text-white dark:text-black rounded-lg text-sm font-bold shadow hover:opacity-90 transition">
+                        暂停监测流
+                    </button>
+                </div>
+            </div>
+
+            <!-- Dashboard Grid -->
+            <div class="grid grid-cols-1 lg:grid-cols-4 gap-6">
+                
+                <!-- Main Chart Area -->
+                <div class="lg:col-span-3 glass-panel rounded-2xl p-6 h-[450px] flex flex-col">
+                    <div class="flex justify-between mb-4">
+                        <h3 class="font-bold text-lg">Z轴垂直位移 (沉降监测)</h3>
+                        <div class="flex gap-2">
+                            <span class="w-3 h-3 rounded-full bg-blue-500"></span>
+                            <span class="text-xs text-slate-500">实时数据</span>
+                        </div>
+                    </div>
+                    <div class="flex-1 w-full relative min-h-0">
+                        <canvas id="liveLineChart"></canvas>
+                    </div>
+                </div>
+
+                <!-- Right Side Metrics -->
+                <div class="lg:col-span-1 space-y-6">
+                    <!-- Gauge -->
+                    <div class="glass-panel rounded-2xl p-6 flex flex-col items-center justify-center relative h-[200px]">
+                        <h4 class="absolute top-4 left-6 text-sm font-bold text-slate-500">结构健康评分</h4>
+                        <div class="relative w-32 h-32 mt-4">
+                            <canvas id="gaugeChart"></canvas>
+                            <div class="absolute inset-0 flex items-center justify-center flex-col">
+                                <span id="health-val" class="text-3xl font-bold">98</span>
+                                <span class="text-xs text-slate-400">Excellent</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Alert Log -->
+                    <div class="glass-panel rounded-2xl p-0 overflow-hidden h-[226px] flex flex-col">
+                        <div class="p-4 border-b border-slate-200 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-800/50">
+                            <h4 class="text-sm font-bold">系统日志 / 报警</h4>
+                        </div>
+                        <div id="log-container" class="p-4 overflow-y-auto font-mono text-xs space-y-2 flex-1">
+                            <div class="text-green-600 dark:text-green-400">> System Initialized...</div>
+                            <div class="text-slate-500">> Connecting to GNSS receiver...</div>
+                            <div class="text-slate-500">> PPP solution converged.</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Bottom Metrics Strip -->
+                <div class="lg:col-span-4 grid grid-cols-2 md:grid-cols-4 gap-4">
+                    <div class="glass-panel p-4 rounded-xl flex items-center justify-between">
+                        <div>
+                            <p class="text-xs text-slate-500">横向偏移 (X)</p>
+                            <p class="text-xl font-bold font-mono">0.04 <span class="text-xs font-normal">mm</span></p>
+                        </div>
+                        <div class="h-8 w-1 bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden">
+                            <div class="h-1/2 bg-blue-500 w-full mt-4"></div>
+                        </div>
+                    </div>
+                    <div class="glass-panel p-4 rounded-xl flex items-center justify-between">
+                        <div>
+                            <p class="text-xs text-slate-500">纵向偏移 (Y)</p>
+                            <p class="text-xl font-bold font-mono">0.12 <span class="text-xs font-normal">mm</span></p>
+                        </div>
+                        <div class="h-8 w-1 bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden">
+                            <div class="h-1/3 bg-blue-500 w-full mt-2"></div>
+                        </div>
+                    </div>
+                    <div class="glass-panel p-4 rounded-xl flex items-center justify-between">
+                        <div>
+                            <p class="text-xs text-slate-500">应变力 (Strain)</p>
+                            <p id="strain-val" class="text-xl font-bold font-mono text-purple-600 dark:text-purple-400">450 <span class="text-xs font-normal">με</span></p>
+                        </div>
+                        <div class="text-2xl opacity-50">📉</div>
+                    </div>
+                    <div class="glass-panel p-4 rounded-xl flex items-center justify-between">
+                        <div>
+                            <p class="text-xs text-slate-500">环境温度</p>
+                            <p class="text-xl font-bold font-mono">24.5 <span class="text-xs font-normal">°C</span></p>
+                        </div>
+                        <div class="text-2xl opacity-50">🌡️</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- 市场分析与社会影响 -->
+    <section id="market" class="py-20 px-4">
+        <div class="max-w-7xl mx-auto">
+            <div class="text-center mb-16">
+                <span class="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-600 dark:text-emerald-400 text-sm font-semibold mb-4">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"/></svg>
+                    市场洞察
+                </span>
+                <h2 class="text-4xl font-bold mb-4">市场分析与社会影响</h2>
+                <p class="text-slate-500 dark:text-slate-400 max-w-2xl mx-auto">从蓝海机遇到社会价值，探索项目的商业潜力与深远意义</p>
+            </div>
+
+            <!-- 市场环境分析 -->
+            <div class="glass-panel rounded-3xl p-8 md:p-12 mb-8">
+                <div class="flex items-center gap-3 mb-6">
+                    <div class="w-12 h-12 rounded-2xl bg-gradient-to-br from-blue-500 to-cyan-500 flex items-center justify-center text-white text-2xl shadow-lg">🌊</div>
+                    <div>
+                        <h3 class="text-2xl font-bold">市场环境分析</h3>
+                        <p class="text-sm text-slate-500">蓝海中的机遇</p>
+                    </div>
+                </div>
+                
+                <div class="grid md:grid-cols-2 gap-8">
+                    <div>
+                        <p class="text-slate-600 dark:text-slate-300 leading-relaxed mb-6">
+                            全球范围内，基础设施老龄化已成为不可忽视的危机。据统计，<span class="font-bold text-red-500">美国超过40%的桥梁存在结构缺陷</span>；在中国，随着基建狂潮过后的存量时代到来，<span class="font-bold text-orange-500">数十万座桥梁进入养护维修高峰期</span>。
+                        </p>
+                        <div class="flex gap-4">
+                            <div class="flex-1 p-4 rounded-xl bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800">
+                                <div class="text-3xl font-bold text-blue-600 dark:text-blue-400">90万+</div>
+                                <div class="text-sm text-slate-500">中国公路桥梁总数</div>
+                            </div>
+                            <div class="flex-1 p-4 rounded-xl bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800">
+                                <div class="text-3xl font-bold text-orange-600 dark:text-orange-400">40%</div>
+                                <div class="text-sm text-slate-500">需定期健康监测</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="space-y-4">
+                        <div class="p-4 rounded-xl bg-gradient-to-r from-emerald-50 to-teal-50 dark:from-emerald-900/20 dark:to-teal-900/20 border border-emerald-200 dark:border-emerald-800">
+                            <div class="flex items-center gap-2 mb-2">
+                                <span class="text-lg">📈</span>
+                                <span class="font-bold text-emerald-700 dark:text-emerald-400">需求侧</span>
+                            </div>
+                            <p class="text-sm text-slate-600 dark:text-slate-300">交通管理部门迫切需要从"人工巡检"向"自动化监测"转型，以降低人力成本，提高安全性。</p>
+                        </div>
+                        <div class="p-4 rounded-xl bg-gradient-to-r from-purple-50 to-pink-50 dark:from-purple-900/20 dark:to-pink-900/20 border border-purple-200 dark:border-purple-800">
+                            <div class="flex items-center gap-2 mb-2">
+                                <span class="text-lg">🏭</span>
+                                <span class="font-bold text-purple-700 dark:text-purple-400">供给侧</span>
+                            </div>
+                            <p class="text-sm text-slate-600 dark:text-slate-300">现有商业监测系统（如进口品牌）价格昂贵、系统封闭、维护复杂，难以大规模普及到普通公路桥梁。</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- SWOT分析 -->
+            <div class="glass-panel rounded-3xl p-8 md:p-12 mb-8">
+                <div class="flex items-center gap-3 mb-8">
+                    <div class="w-12 h-12 rounded-2xl bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center text-white text-2xl shadow-lg">⚔️</div>
+                    <div>
+                        <h3 class="text-2xl font-bold">竞争优势分析</h3>
+                        <p class="text-sm text-slate-500">SWOT 战略矩阵</p>
+                    </div>
+                </div>
+                
+                <div class="grid md:grid-cols-2 gap-6">
+                    <!-- 优势 -->
+                    <div class="p-6 rounded-2xl bg-gradient-to-br from-green-50 to-emerald-50 dark:from-green-900/20 dark:to-emerald-900/20 border border-green-200 dark:border-green-800 transition-all hover:scale-[1.02] hover:shadow-lg">
+                        <div class="flex items-center gap-2 mb-4">
+                            <span class="w-8 h-8 rounded-lg bg-green-500 text-white flex items-center justify-center font-bold">S</span>
+                            <span class="font-bold text-green-700 dark:text-green-400">优势 Strengths</span>
+                        </div>
+                        <ul class="space-y-3 text-sm">
+                            <li class="flex items-start gap-2">
+                                <span class="text-green-500 mt-0.5">✓</span>
+                                <span><strong>成本极低：</strong>单点监测成本仅为传统进口设备的 <span class="font-bold text-green-600">1/10</span>，适合大规模密集部署</span>
+                            </li>
+                            <li class="flex items-start gap-2">
+                                <span class="text-green-500 mt-0.5">✓</span>
+                                <span><strong>部署灵活：</strong>PPP技术无需基站，小程序无需安装，极大降低使用门槛</span>
+                            </li>
+                            <li class="flex items-start gap-2">
+                                <span class="text-green-500 mt-0.5">✓</span>
+                                <span><strong>算法领先：</strong>引入前沿深度学习算法，提供传统硬件厂商不具备的预测能力</span>
+                            </li>
+                        </ul>
+                    </div>
+                    
+                    <!-- 劣势 -->
+                    <div class="p-6 rounded-2xl bg-gradient-to-br from-red-50 to-orange-50 dark:from-red-900/20 dark:to-orange-900/20 border border-red-200 dark:border-red-800 transition-all hover:scale-[1.02] hover:shadow-lg">
+                        <div class="flex items-center gap-2 mb-4">
+                            <span class="w-8 h-8 rounded-lg bg-red-500 text-white flex items-center justify-center font-bold">W</span>
+                            <span class="font-bold text-red-700 dark:text-red-400">劣势 Weaknesses</span>
+                        </div>
+                        <ul class="space-y-3 text-sm">
+                            <li class="flex items-start gap-2">
+                                <span class="text-red-500 mt-0.5">△</span>
+                                <span>作为学生团队，在硬件的工业级防护（IP67+）、长期可靠性验证方面经验不足</span>
+                            </li>
+                            <li class="flex items-start gap-2">
+                                <span class="text-red-500 mt-0.5">△</span>
+                                <span>缺乏大规模商业化运营经验，市场推广渠道有限</span>
+                            </li>
+                        </ul>
+                    </div>
+                    
+                    <!-- 机会 -->
+                    <div class="p-6 rounded-2xl bg-gradient-to-br from-blue-50 to-cyan-50 dark:from-blue-900/20 dark:to-cyan-900/20 border border-blue-200 dark:border-blue-800 transition-all hover:scale-[1.02] hover:shadow-lg">
+                        <div class="flex items-center gap-2 mb-4">
+                            <span class="w-8 h-8 rounded-lg bg-blue-500 text-white flex items-center justify-center font-bold">O</span>
+                            <span class="font-bold text-blue-700 dark:text-blue-400">机会 Opportunities</span>
+                        </div>
+                        <ul class="space-y-3 text-sm">
+                            <li class="flex items-start gap-2">
+                                <span class="text-blue-500 mt-0.5">★</span>
+                                <span>国家<strong>"新基建"政策</strong>大力支持交通数字化转型</span>
+                            </li>
+                            <li class="flex items-start gap-2">
+                                <span class="text-blue-500 mt-0.5">★</span>
+                                <span><strong>北斗三号</strong>全球组网完成，为国产高精度定位技术提供基础设施红利</span>
+                            </li>
+                            <li class="flex items-start gap-2">
+                                <span class="text-blue-500 mt-0.5">★</span>
+                                <span>智慧交通与数字孪生成为行业热点，资本市场关注度高</span>
+                            </li>
+                        </ul>
+                    </div>
+                    
+                    <!-- 威胁 -->
+                    <div class="p-6 rounded-2xl bg-gradient-to-br from-amber-50 to-yellow-50 dark:from-amber-900/20 dark:to-yellow-900/20 border border-amber-200 dark:border-amber-800 transition-all hover:scale-[1.02] hover:shadow-lg">
+                        <div class="flex items-center gap-2 mb-4">
+                            <span class="w-8 h-8 rounded-lg bg-amber-500 text-white flex items-center justify-center font-bold">T</span>
+                            <span class="font-bold text-amber-700 dark:text-amber-400">威胁 Threats</span>
+                        </div>
+                        <ul class="space-y-3 text-sm">
+                            <li class="flex items-start gap-2">
+                                <span class="text-amber-500 mt-0.5">⚠</span>
+                                <span>传统测绘仪器巨头（如南方测绘、华测导航）正在向监测领域转型，市场竞争将加剧</span>
+                            </li>
+                            <li class="flex items-start gap-2">
+                                <span class="text-amber-500 mt-0.5">⚠</span>
+                                <span>政府采购流程复杂，资质认证周期长</span>
+                            </li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 社会价值 -->
+            <div class="glass-panel rounded-3xl p-8 md:p-12">
+                <div class="flex items-center gap-3 mb-8">
+                    <div class="w-12 h-12 rounded-2xl bg-gradient-to-br from-rose-500 to-red-500 flex items-center justify-center text-white text-2xl shadow-lg">❤️</div>
+                    <div>
+                        <h3 class="text-2xl font-bold">社会价值与安全意义</h3>
+                        <p class="text-sm text-slate-500">守护生命，创造价值</p>
+                    </div>
+                </div>
+                
+                <div class="grid md:grid-cols-2 gap-8">
+                    <div class="relative p-8 rounded-2xl bg-gradient-to-br from-rose-50 via-pink-50 to-red-50 dark:from-rose-900/20 dark:via-pink-900/20 dark:to-red-900/20 border border-rose-200 dark:border-rose-800 overflow-hidden group hover:shadow-xl transition-all">
+                        <div class="absolute top-0 right-0 w-32 h-32 bg-gradient-to-br from-rose-200/50 to-transparent rounded-full transform translate-x-16 -translate-y-16 group-hover:scale-150 transition-transform"></div>
+                        <div class="relative">
+                            <div class="w-16 h-16 rounded-2xl bg-gradient-to-br from-rose-500 to-red-600 flex items-center justify-center text-white text-3xl mb-6 shadow-lg">🛡️</div>
+                            <h4 class="text-xl font-bold text-rose-700 dark:text-rose-400 mb-3">生命线守护者</h4>
+                            <p class="text-slate-600 dark:text-slate-300 leading-relaxed">
+                                通过对桥梁微小变形的敏锐捕捉，系统能够在<strong class="text-rose-600 dark:text-rose-400">灾难发生前发出预警</strong>，避免类似无锡高架侧翻的悲剧，守护人民生命财产安全。
+                            </p>
+                            <div class="mt-4 flex items-center gap-2 text-sm text-rose-600 dark:text-rose-400 font-medium">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/></svg>
+                                预防 > 救灾，早期预警价值无可估量
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="relative p-8 rounded-2xl bg-gradient-to-br from-emerald-50 via-green-50 to-teal-50 dark:from-emerald-900/20 dark:via-green-900/20 dark:to-teal-900/20 border border-emerald-200 dark:border-emerald-800 overflow-hidden group hover:shadow-xl transition-all">
+                        <div class="absolute top-0 right-0 w-32 h-32 bg-gradient-to-br from-emerald-200/50 to-transparent rounded-full transform translate-x-16 -translate-y-16 group-hover:scale-150 transition-transform"></div>
+                        <div class="relative">
+                            <div class="w-16 h-16 rounded-2xl bg-gradient-to-br from-emerald-500 to-green-600 flex items-center justify-center text-white text-3xl mb-6 shadow-lg">💰</div>
+                            <h4 class="text-xl font-bold text-emerald-700 dark:text-emerald-400 mb-3">经济效益倍增器</h4>
+                            <p class="text-slate-600 dark:text-slate-300 leading-relaxed">
+                                基于AI的精准评估可以实现<strong class="text-emerald-600 dark:text-emerald-400">"视情维修"</strong>，避免过度维修造成的资金浪费，也避免失修造成的资产贬值，延长桥梁使用寿命，为国家节省巨额重建资金。
+                            </p>
+                            <div class="mt-4 flex items-center gap-2 text-sm text-emerald-600 dark:text-emerald-400 font-medium">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                                精准养护，节约可达 30%-50% 维护成本
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Roadmap Timeline -->
+    <section class="py-20 px-4">
+        <div class="max-w-4xl mx-auto">
+            <h2 class="text-3xl font-bold text-center mb-12">项目实施路线图</h2>
+            <div class="relative pl-8 border-l-2 border-slate-200 dark:border-slate-700 space-y-12">
+                <div class="relative group">
+                    <span class="absolute -left-[41px] top-0 w-5 h-5 rounded-full bg-blue-500 border-4 border-white dark:border-slate-900 shadow-md"></span>
+                    <h3 class="text-xl font-bold text-blue-600 dark:text-blue-400">第一阶段：方案设计</h3>
+                    <p class="text-sm font-mono text-slate-400 mb-2">Month 1-3</p>
+                    <div class="glass-panel p-4 rounded-xl">
+                        <p class="text-sm">选定GNSS接收机与传感器型号，搭建实验平台，研究PPP算法与卡尔曼滤波基础模型。</p>
+                    </div>
+                </div>
+                <div class="relative group">
+                    <span class="absolute -left-[41px] top-0 w-5 h-5 rounded-full bg-purple-500 border-4 border-white dark:border-slate-900 shadow-md"></span>
+                    <h3 class="text-xl font-bold text-purple-600 dark:text-purple-400">第二阶段：数据采集与优化</h3>
+                    <p class="text-sm font-mono text-slate-400 mb-2">Month 4-6</p>
+                    <div class="glass-panel p-4 rounded-xl">
+                        <p class="text-sm">现场初步采集，对比传统全站仪数据，验证精度并优化融合模型参数。</p>
+                    </div>
+                </div>
+                <div class="relative group">
+                    <span class="absolute -left-[41px] top-0 w-5 h-5 rounded-full bg-orange-500 border-4 border-white dark:border-slate-900 shadow-md"></span>
+                    <h3 class="text-xl font-bold text-orange-600 dark:text-orange-400">第三阶段：深度分析</h3>
+                    <p class="text-sm font-mono text-slate-400 mb-2">Month 7-9</p>
+                    <div class="glass-panel p-4 rounded-xl">
+                        <p class="text-sm">长时段多负载测试，应用扩展卡尔曼滤波消除多路径效应，获取完整变形趋势。</p>
+                    </div>
+                </div>
+                <div class="relative group">
+                    <span class="absolute -left-[41px] top-0 w-5 h-5 rounded-full bg-green-500 border-4 border-white dark:border-slate-900 shadow-md"></span>
+                    <h3 class="text-xl font-bold text-green-600 dark:text-green-400">第四阶段：系统集成</h3>
+                    <p class="text-sm font-mono text-slate-400 mb-2">Month 10-12</p>
+                    <div class="glass-panel p-4 rounded-xl">
+                        <p class="text-sm">开发可视化监测小程序（即本页面演示的最终形态），集成报警功能，撰写结题报告。</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- 结论与未来展望 -->
+    <section id="conclusion" class="py-20 px-4 bg-gradient-to-b from-transparent via-blue-50/30 to-purple-50/30 dark:from-transparent dark:via-blue-950/20 dark:to-purple-950/20">
+        <div class="max-w-5xl mx-auto">
+            <!-- 标题 -->
+            <div class="text-center mb-16">
+                <span class="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-indigo-500/10 border border-indigo-500/20 text-indigo-600 dark:text-indigo-400 text-sm font-semibold mb-4">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.438 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.438 3.42 3.42 0 00-.806 1.946 3.42 3.42 0 01-3.138 3.138 3.42 3.42 0 00-1.946.806 3.42 3.42 0 01-4.438 0 3.42 3.42 0 00-1.946-.806 3.42 3.42 0 01-3.138-3.138 3.42 3.42 0 00-.806-1.946 3.42 3.42 0 010-4.438 3.42 3.42 0 00.806-1.946 3.42 3.42 0 013.138-3.138z"/></svg>
+                    项目成果
+                </span>
+                <h2 class="text-4xl font-bold mb-4">结论与未来展望</h2>
+                <p class="text-slate-500 dark:text-slate-400 max-w-2xl mx-auto">从技术创新到产业落地，探索智慧桥梁的无限可能</p>
+            </div>
+
+            <!-- 总结卡片 -->
+            <div class="glass-panel rounded-3xl p-8 md:p-12 mb-10 relative overflow-hidden">
+                <!-- 装饰背景 -->
+                <div class="absolute top-0 right-0 w-64 h-64 bg-gradient-to-br from-blue-500/10 to-purple-500/10 rounded-full transform translate-x-32 -translate-y-32 blur-3xl"></div>
+                <div class="absolute bottom-0 left-0 w-48 h-48 bg-gradient-to-tr from-emerald-500/10 to-cyan-500/10 rounded-full transform -translate-x-24 translate-y-24 blur-3xl"></div>
+                
+                <div class="relative">
+                    <div class="flex items-center gap-4 mb-8">
+                        <div class="w-14 h-14 rounded-2xl bg-gradient-to-br from-blue-500 via-purple-500 to-pink-500 flex items-center justify-center text-white text-3xl shadow-xl">📋</div>
+                        <div>
+                            <h3 class="text-2xl font-bold">项目总结</h3>
+                            <p class="text-sm text-slate-500">基于精密单点定位及多源数据融合的大型桥梁变形监测技术</p>
+                        </div>
+                    </div>
+                    
+                    <div class="prose prose-slate dark:prose-invert max-w-none">
+                        <p class="text-lg leading-relaxed text-slate-600 dark:text-slate-300 mb-6">
+                            本项目立足于<strong class="text-blue-600 dark:text-blue-400">国家基础设施安全</strong>的重大需求，创新性地融合了测绘学、土木工程与人工智能的前沿技术。
+                        </p>
+                        
+                        <div class="grid md:grid-cols-3 gap-4 mb-6">
+                            <div class="p-4 rounded-xl bg-blue-50/80 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800">
+                                <div class="text-2xl mb-2">📡</div>
+                                <div class="font-bold text-blue-700 dark:text-blue-400 mb-1">PPP技术</div>
+                                <p class="text-sm text-slate-600 dark:text-slate-400">解决传统监测对基站的依赖痛点</p>
+                            </div>
+                            <div class="p-4 rounded-xl bg-purple-50/80 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800">
+                                <div class="text-2xl mb-2">🔗</div>
+                                <div class="font-bold text-purple-700 dark:text-purple-400 mb-1">多源卡尔曼滤波</div>
+                                <p class="text-sm text-slate-600 dark:text-slate-400">解决单一传感器的数据缺陷</p>
+                            </div>
+                            <div class="p-4 rounded-xl bg-emerald-50/80 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800">
+                                <div class="text-2xl mb-2">🧠</div>
+                                <div class="font-bold text-emerald-700 dark:text-emerald-400 mb-1">深度学习模型</div>
+                                <p class="text-sm text-slate-600 dark:text-slate-400">实现智能化状态评估与预测</p>
+                            </div>
+                        </div>
+                        
+                        <p class="text-slate-600 dark:text-slate-300 leading-relaxed">
+                            在<strong>郑州黄河二桥</strong>的应用分析表明，该系统具备<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 text-sm font-medium">低成本</span>
+                            <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 text-sm font-medium">高精度</span>
+                            <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-400 text-sm font-medium">易部署</span>
+                            <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-400 text-sm font-medium">智能化</span>
+                            的显著特征，是一套极具推广价值的<strong class="text-indigo-600 dark:text-indigo-400">"智慧桥梁"</strong>解决方案。
+                        </p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 未来展望 -->
+            <div class="glass-panel rounded-3xl p-8 md:p-12 relative overflow-hidden">
+                <div class="absolute inset-0 bg-gradient-to-br from-indigo-500/5 via-transparent to-cyan-500/5"></div>
+                
+                <div class="relative">
+                    <div class="flex items-center gap-4 mb-8">
+                        <div class="w-14 h-14 rounded-2xl bg-gradient-to-br from-indigo-500 via-blue-500 to-cyan-500 flex items-center justify-center text-white text-3xl shadow-xl">🚀</div>
+                        <div>
+                            <h3 class="text-2xl font-bold">未来展望</h3>
+                            <p class="text-sm text-slate-500">技术的演进永无止境</p>
+                        </div>
+                    </div>
+                    
+                    <p class="text-slate-600 dark:text-slate-300 mb-8 leading-relaxed">
+                        我们将从以下几个维度深化项目，推动智慧桥梁技术迈向更高水平：
+                    </p>
+                    
+                    <div class="space-y-6">
+                        <!-- 数字孪生 -->
+                        <div class="group relative p-6 rounded-2xl bg-gradient-to-r from-violet-50 to-purple-50 dark:from-violet-900/20 dark:to-purple-900/20 border border-violet-200 dark:border-violet-800 hover:shadow-xl transition-all hover:-translate-y-1">
+                            <div class="flex items-start gap-4">
+                                <div class="w-12 h-12 rounded-xl bg-gradient-to-br from-violet-500 to-purple-600 flex items-center justify-center text-white text-2xl shadow-lg flex-shrink-0 group-hover:scale-110 transition-transform">🏗️</div>
+                                <div class="flex-1">
+                                    <h4 class="text-lg font-bold text-violet-700 dark:text-violet-400 mb-2 flex items-center gap-2">
+                                        数字孪生深度融合
+                                        <span class="px-2 py-0.5 rounded-full bg-violet-200 dark:bg-violet-800 text-xs font-medium">Phase 1</span>
+                                    </h4>
+                                    <p class="text-slate-600 dark:text-slate-300 leading-relaxed">
+                                        不再局限于简单的数据展示，而是将监测数据<strong>实时驱动高保真的桥梁FEM（有限元）模型</strong>，实现结构内力的实时反演，让虚拟模型与真实桥梁同步"呼吸"。
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- 众包监测 -->
+                        <div class="group relative p-6 rounded-2xl bg-gradient-to-r from-cyan-50 to-blue-50 dark:from-cyan-900/20 dark:to-blue-900/20 border border-cyan-200 dark:border-cyan-800 hover:shadow-xl transition-all hover:-translate-y-1">
+                            <div class="flex items-start gap-4">
+                                <div class="w-12 h-12 rounded-xl bg-gradient-to-br from-cyan-500 to-blue-600 flex items-center justify-center text-white text-2xl shadow-lg flex-shrink-0 group-hover:scale-110 transition-transform">🚗</div>
+                                <div class="flex-1">
+                                    <h4 class="text-lg font-bold text-cyan-700 dark:text-cyan-400 mb-2 flex items-center gap-2">
+                                        众包监测模式
+                                        <span class="px-2 py-0.5 rounded-full bg-cyan-200 dark:bg-cyan-800 text-xs font-medium">Phase 2</span>
+                                    </h4>
+                                    <p class="text-slate-600 dark:text-slate-300 leading-relaxed">
+                                        探索利用过往车辆的<strong>车载传感器（如手机IMU、车载GPS）</strong>数据，结合固定传感器数据，构建<strong>"车-桥协同"</strong>的泛在感知网络，让每一辆车都成为移动监测站。
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- 标准化产品化 -->
+                        <div class="group relative p-6 rounded-2xl bg-gradient-to-r from-amber-50 to-orange-50 dark:from-amber-900/20 dark:to-orange-900/20 border border-amber-200 dark:border-amber-800 hover:shadow-xl transition-all hover:-translate-y-1">
+                            <div class="flex items-start gap-4">
+                                <div class="w-12 h-12 rounded-xl bg-gradient-to-br from-amber-500 to-orange-600 flex items-center justify-center text-white text-2xl shadow-lg flex-shrink-0 group-hover:scale-110 transition-transform">🏭</div>
+                                <div class="flex-1">
+                                    <h4 class="text-lg font-bold text-amber-700 dark:text-amber-400 mb-2 flex items-center gap-2">
+                                        标准化与产品化
+                                        <span class="px-2 py-0.5 rounded-full bg-amber-200 dark:bg-amber-800 text-xs font-medium">Phase 3</span>
+                                    </h4>
+                                    <p class="text-slate-600 dark:text-slate-300 leading-relaxed">
+                                        完善硬件的工业设计，通过<strong>相关行业标准认证</strong>，推动成果从实验室走向更广阔的工程市场，让"智慧桥梁"惠及更多基础设施。
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- 愿景引用 -->
+                    <div class="mt-10 p-6 rounded-2xl bg-gradient-to-r from-slate-100 to-slate-50 dark:from-slate-800/50 dark:to-slate-900/50 border border-slate-200 dark:border-slate-700 text-center">
+                        <svg class="w-8 h-8 text-slate-300 dark:text-slate-600 mx-auto mb-3" fill="currentColor" viewBox="0 0 24 24"><path d="M14.017 21v-7.391c0-5.704 3.731-9.57 8.983-10.609l.995 2.151c-2.432.917-3.995 3.638-3.995 5.849h4v10h-9.983zm-14.017 0v-7.391c0-5.704 3.748-9.57 9-10.609l.996 2.151c-2.433.917-3.996 3.638-3.996 5.849h3.983v10h-9.983z"/></svg>
+                        <p class="text-lg text-slate-600 dark:text-slate-300 italic leading-relaxed max-w-2xl mx-auto">
+                            让每一座桥梁都拥有自己的"数字生命"，让安全监测从被动响应转向主动预防，这是我们对智慧交通未来的美好愿景。
+                        </p>
+                        <p class="text-sm text-slate-400 mt-4">—— 项目团队</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="py-12 border-t border-slate-200 dark:border-slate-800 bg-white/50 dark:bg-black/50 backdrop-blur-md text-center">
+        <div class="max-w-7xl mx-auto px-4">
+            <p class="font-bold text-lg mb-2">Bridge Monitoring Project</p>
+            <p class="text-sm text-slate-500">大学生创新创业训练项目 · 测绘工程 · 智能交通</p>
+            <p class="text-xs text-slate-400 mt-8">© 2025 Designed with Modern Glassmorphism</p>
+        </div>
+    </footer>
+
+    <!-- LOGIC -->
+    <script>
+        // --- 1. Theme Toggle Logic ---
+        const themeToggleBtn = document.getElementById('theme-toggle');
+        const html = document.documentElement;
+        
+        // Check local storage or system preference
+        if (localStorage.theme === 'dark' || (!('theme' in localStorage) && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+            html.classList.add('dark');
+        } else {
+            html.classList.remove('dark');
+        }
+
+        themeToggleBtn.addEventListener('click', () => {
+            html.classList.toggle('dark');
+            if (html.classList.contains('dark')) {
+                localStorage.theme = 'dark';
+            } else {
+                localStorage.theme = 'light';
+            }
+            updateChartTheme(); // Update charts when theme changes
+        });
+
+        // --- 2. Chart Color Config ---
+        function getChartColors() {
+            const isDark = html.classList.contains('dark');
+            return {
+                text: isDark ? '#94a3b8' : '#475569', // slate-400 vs slate-600
+                grid: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.05)',
+                radarBg: isDark ? 'rgba(59, 130, 246, 0.5)' : 'rgba(59, 130, 246, 0.2)',
+                radarBorder: '#3b82f6',
+                radarPoint: isDark ? '#60a5fa' : '#2563eb'
+            };
+        }
+
+        // Global Chart instances
+        let radarChart, lineChart, gaugeChart;
+
+        // --- 3. Chart Initialization ---
+        document.addEventListener("DOMContentLoaded", function() {
+            const colors = getChartColors();
+            Chart.defaults.color = colors.text;
+            Chart.defaults.borderColor = colors.grid;
+            Chart.defaults.font.family = "'Inter', sans-serif";
+
+            // A. Radar Chart
+            const ctxRadar = document.getElementById('radarChart').getContext('2d');
+            radarChart = new Chart(ctxRadar, {
+                type: 'radar',
+                data: {
+                    labels: ['定位精度', '实时性', '全天候能力', '自动化', '数据连续性', '成本效益'],
+                    datasets: [{
+                        label: 'PPP 多源融合方案',
+                        data: [95, 92, 98, 95, 90, 85],
+                        fill: true,
+                        backgroundColor: colors.radarBg,
+                        borderColor: colors.radarBorder,
+                        pointBackgroundColor: colors.radarPoint,
+                        pointBorderColor: '#fff',
+                    }, {
+                        label: '传统人工监测',
+                        data: [60, 40, 30, 20, 40, 60],
+                        fill: true,
+                        backgroundColor: 'rgba(148, 163, 184, 0.2)',
+                        borderColor: '#94a3b8',
+                        pointBackgroundColor: '#94a3b8',
+                        borderDash: [5, 5]
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        r: {
+                            angleLines: { color: colors.grid },
+                            grid: { color: colors.grid },
+                            pointLabels: { font: { size: 12 } },
+                            suggestedMin: 0,
+                            suggestedMax: 100,
+                            ticks: { backdropColor: 'transparent' } // Remove white bg behind numbers
+                        }
+                    },
+                    plugins: { legend: { position: 'bottom' } }
+                }
+            });
+
+            // B. Live Line Chart
+            const ctxLine = document.getElementById('liveLineChart').getContext('2d');
+            const initialData = Array(30).fill(0).map(() => Math.random() * 0.2 - 0.1);
+            lineChart = new Chart(ctxLine, {
+                type: 'line',
+                data: {
+                    labels: Array(30).fill(''),
+                    datasets: [{
+                        label: 'Z-Axis Displacement',
+                        data: initialData,
+                        borderColor: '#3b82f6',
+                        backgroundColor: (context) => {
+                            const ctx = context.chart.ctx;
+                            const gradient = ctx.createLinearGradient(0, 0, 0, 400);
+                            gradient.addColorStop(0, 'rgba(59, 130, 246, 0.5)');
+                            gradient.addColorStop(1, 'rgba(59, 130, 246, 0)');
+                            return gradient;
+                        },
+                        borderWidth: 2,
+                        tension: 0.4,
+                        fill: true,
+                        pointRadius: 0,
+                        pointHoverRadius: 4
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    animation: false,
+                    interaction: { mode: 'index', intersect: false },
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        x: { display: false },
+                        y: { 
+                            suggestedMin: -0.5, 
+                            suggestedMax: 0.5,
+                            border: { display: false }
+                        }
+                    }
+                }
+            });
+
+            // C. Health Gauge
+            const ctxGauge = document.getElementById('gaugeChart').getContext('2d');
+            gaugeChart = new Chart(ctxGauge, {
+                type: 'doughnut',
+                data: {
+                    labels: ['Health', 'Risk'],
+                    datasets: [{
+                        data: [98, 2],
+                        backgroundColor: ['#10b981', '#cbd5e1'], // green-500, slate-300
+                        borderWidth: 0,
+                        cutout: '85%',
+                        circumference: 360,
+                        rotation: 0
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { display: false }, tooltip: { enabled: false } }
+                }
+            });
+
+            startSimulation();
+        });
+
+        function updateChartTheme() {
+            const c = getChartColors();
+            
+            // Update Radar
+            radarChart.options.scales.r.grid.color = c.grid;
+            radarChart.options.scales.r.angleLines.color = c.grid;
+            radarChart.options.scales.r.pointLabels.color = c.text;
+            radarChart.data.datasets[0].backgroundColor = c.radarBg;
+            radarChart.data.datasets[0].pointBackgroundColor = c.radarPoint;
+            radarChart.update();
+
+            // Update Line
+            lineChart.scales.y.grid.color = c.grid;
+            lineChart.scales.y.ticks.color = c.text;
+            lineChart.update();
+
+            // Gauge usually doesn't need text update inside canvas, but background ring might
+            gaugeChart.data.datasets[0].backgroundColor[1] = html.classList.contains('dark') ? '#334155' : '#cbd5e1';
+            gaugeChart.update();
+        }
+
+        // --- 4. Simulation Logic ---
+        let simInterval;
+        let isSimRunning = true;
+
+        function startSimulation() {
+            const btn = document.getElementById('toggle-sim');
+            
+            simInterval = setInterval(() => {
+                if(!isSimRunning) return;
+
+                // 1. Update Line Chart Data
+                const currentData = lineChart.data.datasets[0].data;
+                const lastVal = currentData[currentData.length - 1];
+                let newVal = lastVal + (Math.random() - 0.5) * 0.15;
+                // Dampening to keep it near 0
+                newVal = newVal * 0.95; 
+                
+                currentData.shift();
+                currentData.push(newVal);
+                lineChart.update();
+
+                // 2. Random Strain Value Update
+                const strainBase = 450;
+                const strainVar = Math.floor(Math.random() * 20 - 10);
+                document.getElementById('strain-val').innerHTML = (strainBase + strainVar) + ' <span class="text-xs font-normal">με</span>';
+
+                // 3. Logger
+                if(Math.random() > 0.8) {
+                    const logs = [
+                        "GNSS Satellite count: 12",
+                        "Tilt sensor correction applied",
+                        "Data packet synced",
+                        "Heartbeat OK",
+                        "Analyzing deformation trend..."
+                    ];
+                    const msg = logs[Math.floor(Math.random() * logs.length)];
+                    addLog(msg);
+                }
+
+                // 4. Alert Simulation
+                if (Math.abs(newVal) > 0.4) {
+                    addLog("WARNING: Threshold exceeded Z-Axis", "text-orange-500");
+                    updateGauge(85, '#f59e0b');
+                } else {
+                    updateGauge(98, '#10b981');
+                }
+
+            }, 800);
+
+            btn.onclick = () => {
+                isSimRunning = !isSimRunning;
+                btn.innerText = isSimRunning ? "暂停监测流" : "继续监测";
+                btn.classList.toggle('opacity-50');
+            };
+        }
+
+        function addLog(msg, colorClass = "text-slate-500 dark:text-slate-400") {
+            const container = document.getElementById('log-container');
+            const div = document.createElement('div');
+            const time = new Date().toLocaleTimeString('en-US', {hour12: false});
+            div.className = colorClass;
+            div.innerText = `[${time}] ${msg}`;
+            container.prepend(div);
+            if(container.children.length > 20) container.removeChild(container.lastChild);
+        }
+
+        function updateGauge(score, color) {
+            gaugeChart.data.datasets[0].data = [score, 100-score];
+            gaugeChart.data.datasets[0].backgroundColor[0] = color;
+            gaugeChart.update();
+            const el = document.getElementById('health-val');
+            el.innerText = score;
+            el.style.color = color;
+        }
+
+        // --- 5. Content Detail Interaction ---
+        const details = {
+            'gnss': { title: 'GNSS 接收机', text: '接收多系统卫星信号（GPS, BDS, Galileo），通过载波相位观测值，利用PPP算法实现全球参考系下的厘米级绝对定位，无需架设地面基站。' },
+            'tilt': { title: '高精度倾斜仪', text: '安装于桥墩与塔顶，实时捕捉结构微小的角度偏转（0.001°级），数据用于修正GNSS天线因桥梁摆动产生的杆臂效应误差。' },
+            'strain': { title: '光纤/电阻应变计', text: '部署在主梁受力关键截面，直接反映材料的拉压状态。应力数据与位移数据结合，可区分结构是发生了弹性形变（可恢复）还是塑性损伤（危险）。' }
+        };
+
+        function showDetail(key) {
+            const container = document.getElementById('tech-detail-content');
+            container.style.opacity = '0';
+            setTimeout(() => {
+                container.innerHTML = `
+                    <div class="w-20 h-20 mx-auto bg-gradient-to-br from-blue-600 to-purple-600 text-white rounded-2xl flex items-center justify-center text-3xl shadow-xl mb-6">
+                        ${key === 'gnss' ? '🛰️' : key === 'tilt' ? '📐' : '⚡'}
+                    </div>
+                    <h3 class="text-2xl font-bold mb-4">${details[key].title}</h3>
+                    <p class="text-slate-600 dark:text-slate-300 leading-relaxed max-w-lg mx-auto">
+                        ${details[key].text}
+                    </p>
+                    <div class="mt-8">
+                        <button onclick="resetDetail()" class="text-sm text-blue-500 hover:underline">返回全景视图</button>
+                    </div>
+                `;
+                container.style.opacity = '1';
+            }, 300);
+        }
+
+        function resetDetail() {
+            const container = document.getElementById('tech-detail-content');
+            container.style.opacity = '0';
+            setTimeout(() => {
+                container.innerHTML = `
+                    <div class="w-20 h-20 mx-auto bg-gradient-to-br from-slate-800 to-black text-white rounded-2xl flex items-center justify-center text-3xl shadow-xl mb-6">
+                        🧠
+                    </div>
+                    <h3 class="text-2xl font-bold mb-4">扩展卡尔曼滤波 (EKF)</h3>
+                    <p class="text-slate-600 dark:text-slate-300 leading-relaxed max-w-lg mx-auto">
+                        这是系统的核心大脑。它不仅仅是简单的叠加数据，而是建立数学模型，将GNSS的宏观位移数据与倾斜、应变的高频局部数据进行融合。通过状态估计，剔除环境噪声（如多路径效应），输出比单一传感器更平滑、更真实、更连续的桥梁变形曲线。
+                    </p>
+                    <div class="mt-8 flex justify-center gap-4 text-sm font-mono text-slate-400">
+                        <span class="px-3 py-1 rounded-full border border-slate-300 dark:border-slate-700">噪声校正</span>
+                        <span class="px-3 py-1 rounded-full border border-slate-300 dark:border-slate-700">状态预测</span>
+                        <span class="px-3 py-1 rounded-full border border-slate-300 dark:border-slate-700">精度验证</span>
+                    </div>
+                `;
+                container.style.opacity = '1';
+            }, 300);
+        }
+
+        // --- 6. 背景动效：粒子生成与鼠标跟随 ---
+        // 生成随机粒子
+        function createParticles() {
+            const container = document.getElementById('particles');
+            if (!container) return;
+            
+            const particleCount = 50;
+            for (let i = 0; i < particleCount; i++) {
+                const particle = document.createElement('div');
+                particle.className = 'particle';
+                particle.style.left = Math.random() * 100 + '%';
+                particle.style.top = Math.random() * 100 + '%';
+                particle.style.width = (Math.random() * 4 + 2) + 'px';
+                particle.style.height = particle.style.width;
+                particle.style.animationDelay = Math.random() * 3 + 's';
+                particle.style.animationDuration = (Math.random() * 2 + 2) + 's';
+                container.appendChild(particle);
+            }
+        }
+
+        // 鼠标跟随光晕
+        const cursorGlow = document.getElementById('cursorGlow');
+        let mouseX = 0, mouseY = 0;
+        let glowX = 0, glowY = 0;
+
+        document.addEventListener('mousemove', (e) => {
+            mouseX = e.clientX;
+            mouseY = e.clientY;
+            if (cursorGlow) {
+                cursorGlow.style.opacity = '1';
+            }
+        });
+
+        document.addEventListener('mouseleave', () => {
+            if (cursorGlow) {
+                cursorGlow.style.opacity = '0';
+            }
+        });
+
+        // 平滑跟随动画
+        function animateCursorGlow() {
+            glowX += (mouseX - glowX) * 0.1;
+            glowY += (mouseY - glowY) * 0.1;
+            if (cursorGlow) {
+                cursorGlow.style.left = glowX + 'px';
+                cursorGlow.style.top = glowY + 'px';
+            }
+            requestAnimationFrame(animateCursorGlow);
+        }
+
+        // 初始化背景动效
+        createParticles();
+        animateCursorGlow();
+
+        // --- 7. 打字机效果（三段循环） ---
+        const typewriterParagraphs = [
+            [
+                { text: '告别传统人工监测的局限。利用 ', highlight: false },
+                { text: 'GNSS PPP技术', highlight: true },
+                { text: ' 结合倾斜传感器与应变计，构建全天候、毫米级的桥梁健康数字孪生系统。', highlight: false }
+            ],
+            [
+                { text: '基于 ', highlight: false },
+                { text: '扩展卡尔曼滤波', highlight: true },
+                { text: ' 的多源数据融合，实现噪声抑制与状态估计，让监测数据更平滑、更可靠。', highlight: false }
+            ],
+            [
+                { text: '实时智能预警系统，', highlight: false },
+                { text: '毫秒级响应', highlight: true },
+                { text: '，为桥梁安全保驾护航，守护每一次通行。', highlight: false }
+            ]
+        ];
+
+        function initTypewriter() {
+            const container = document.querySelector('#typewriter .typewriter-text');
+            if (!container) return;
+            
+            let currentParagraph = 0;
+
+            function typeParagraph(paragraphIndex) {
+                const paragraph = typewriterParagraphs[paragraphIndex];
+                let fullText = '';
+                let segments = [];
+                
+                // 预处理文本段落
+                paragraph.forEach(segment => {
+                    const start = fullText.length;
+                    fullText += segment.text;
+                    segments.push({
+                        start: start,
+                        end: fullText.length,
+                        highlight: segment.highlight
+                    });
+                });
+
+                let currentIndex = 0;
+
+                function type() {
+                    if (currentIndex <= fullText.length) {
+                        let html = '';
+                        
+                        segments.forEach(segment => {
+                            const segmentStart = segment.start;
+                            const segmentEnd = Math.min(segment.end, currentIndex);
+                            
+                            if (currentIndex > segmentStart) {
+                                const visibleText = fullText.substring(segmentStart, segmentEnd);
+                                if (segment.highlight) {
+                                    html += `<span class="typewriter-highlight">${visibleText}</span>`;
+                                } else {
+                                    html += visibleText;
+                                }
+                            }
+                        });
+                        
+                        container.innerHTML = html;
+                        currentIndex++;
+                        
+                        // 随机打字速度，更自然
+                        const speed = Math.random() * 30 + 35;
+                        setTimeout(type, speed);
+                    } else {
+                        // 打字完成，等待一段时间后开始删除
+                        setTimeout(erase, 2000);
+                    }
+                }
+
+                function erase() {
+                    if (currentIndex > 0) {
+                        currentIndex--;
+                        let html = '';
+                        
+                        segments.forEach(segment => {
+                            const segmentStart = segment.start;
+                            const segmentEnd = Math.min(segment.end, currentIndex);
+                            
+                            if (currentIndex > segmentStart) {
+                                const visibleText = fullText.substring(segmentStart, segmentEnd);
+                                if (segment.highlight) {
+                                    html += `<span class="typewriter-highlight">${visibleText}</span>`;
+                                } else {
+                                    html += visibleText;
+                                }
+                            }
+                        });
+                        
+                        container.innerHTML = html;
+                        
+                        // 删除速度更快
+                        const speed = Math.random() * 15 + 20;
+                        setTimeout(erase, speed);
+                    } else {
+                        // 删除完成，切换到下一段
+                        currentParagraph = (currentParagraph + 1) % typewriterParagraphs.length;
+                        setTimeout(() => typeParagraph(currentParagraph), 500);
+                    }
+                }
+
+                // 开始打字
+                type();
+            }
+            
+            // 延迟启动打字效果
+            setTimeout(() => typeParagraph(currentParagraph), 800);
+        }
+
+        // 页面加载完成后启动打字机
+        initTypewriter();
+    </script>
+</body>
+</html>
